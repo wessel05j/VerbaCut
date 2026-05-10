@@ -234,6 +234,13 @@ class ClippingEngine:
             return {}
         if str(payload.get("config_signature", "")) != signature:
             return {}
+        if bool(payload.get("completed", False)):
+            self.logger.info("Discarding completed checkpoint for %s", video.name)
+            try:
+                checkpoint_path.unlink(missing_ok=True)
+            except Exception as exc:
+                self.logger.debug("Could not remove completed checkpoint %s: %s", checkpoint_path, exc)
+            return {}
         if not self._transcript_checkpoint_compatible(payload):
             self.logger.info(
                 "Ignoring outdated transcript checkpoint for %s because it lacks word timestamp metadata.",
@@ -260,9 +267,9 @@ class ClippingEngine:
         payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
         save_json_file(self._video_checkpoint_path(video, fingerprint=fingerprint), payload)
 
-    def _clear_video_checkpoint(self, video: Path) -> None:
+    def _clear_video_checkpoint(self, video: Path, fingerprint: Optional[str] = None) -> None:
         try:
-            self._video_checkpoint_path(video).unlink(missing_ok=True)
+            self._video_checkpoint_path(video, fingerprint=fingerprint).unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -1502,8 +1509,10 @@ class ClippingEngine:
                                     self._archive_video(video)
                                     self._apply_temp_cleanup_policy()
                                     progress.advance(activity_task)
-                                    checkpoint["completed"] = True
-                                    self._save_video_checkpoint(video, checkpoint)
+                                    self._clear_video_checkpoint(
+                                        video,
+                                        fingerprint=str(checkpoint.get("video_fingerprint", "")),
+                                    )
                                     processed_video = True
                                     break
 
@@ -1558,8 +1567,10 @@ class ClippingEngine:
                                 self._archive_video(video)
                                 self._apply_temp_cleanup_policy()
                                 progress.advance(activity_task)
-                                checkpoint["completed"] = True
-                                self._save_video_checkpoint(video, checkpoint)
+                                self._clear_video_checkpoint(
+                                    video,
+                                    fingerprint=str(checkpoint.get("video_fingerprint", "")),
+                                )
                                 processed_video = True
                             except _SettingsChangedError:
                                 self.logger.warning(

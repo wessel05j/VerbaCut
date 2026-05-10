@@ -1,187 +1,80 @@
-# AI AUTO CLIPPER
+# AI Auto Clipper
 
-<p align="center">
-  <img src="assets/ai-auto-clipper-logo.svg" alt="AI AUTO CLIPPER logo" width="920" />
-</p>
+Local-first video clipping powered by Whisper, Ollama, yt-dlp, and FFmpeg.
 
-🎬 **AI AUTO CLIPPER** is a local-first clipping project, basically **OpusClip vibes, but free**.  
-🤖 Extract long and short clips from your videos, tune advanced settings, and get exactly the output style you want.  
-🔒 Everything runs on your machine with Whisper + Ollama + yt-dlp.
+AI Auto Clipper takes long videos, transcribes them, asks a local AI model to find useful moments, and exports those moments as separate clips.
 
-## Why This Project
-- 🧠 AI clip discovery with strict JSON output handling and retry logic
-- 🎯 Long-form and short-form clip extraction in one pipeline
-- 🛠️ Setup Wizard + Dashboard for real-world usage, not just scripts
-- 📥 YouTube queue + channel fetch system built-in
-- ⚙️ Hardware-aware runtime tuning and model policy enforcement (`thinking` models, `>=8b`)
+## Features
+
+- Local transcription with Whisper.
+- Local AI clip selection through Ollama.
+- YouTube link and channel queue support through yt-dlp.
+- Resumable runs for interrupted processing.
+- FFmpeg-based clip extraction with MP4 output and MKV fallback.
+- Terminal setup wizard and dashboard.
 
 ## Requirements
-- `Python` (3.10+ recommended)
-- `Git`
-- `ffmpeg` (must be available in `PATH`)
-- `Ollama` (running locally, default `http://localhost:11434`)
 
-## Windows Quick Start
+- Python 3.10 or newer
+- Git
+- FFmpeg available in `PATH`
+- Ollama running locally
 
-### 1. Check dependencies
-```powershell
-python --version
-git --version
-ffmpeg -version
-ollama --version
-```
+## Quick Start
 
-If something is missing, install quickly with:
-```powershell
-winget install --id Python.Python.3.11 -e
-winget install --id Git.Git -e
-winget install --id Gyan.FFmpeg -e
-winget install --id Ollama.Ollama -e
-```
-
-### 2. Clone and run
 ```powershell
 git clone https://github.com/wessel05j/AI_Auto_clipper.git
 cd AI_Auto_clipper
 .\run.bat
 ```
 
-Alternative launcher:
+Alternative Windows launcher:
+
 ```powershell
 .\run.ps1
 ```
 
-`run.bat` / `run.ps1` automatically create `venv`, install deps (`setup_env.py`), and start the app.
+macOS/Linux:
 
-## macOS / Linux Quick Start
-
-### 1. Check dependencies
 ```bash
-python3 --version
-git --version
-ffmpeg -version
-ollama --version
-```
-
-### 2. Clone and run
-```bash
-git clone https://github.com/wessel05j/AI_Auto_clipper.git
-cd AI_Auto_clipper
 python3 -m venv venv
 source venv/bin/activate
 python setup_env.py --torch auto
 python main.py
 ```
 
-Notes:
-- The bundled launcher scripts are Windows-oriented (`.bat` / `.ps1`).
-- On macOS/Linux, run via the commands above.
+## Usage
 
-## First Run Experience
-1. Runtime layout is prepared (`input/`, `output/`, `temp/`, `config/`, `logs/`, `system/`).
-2. Config is validated (`config/config.json`).
-3. If config is missing or invalid, Setup Wizard launches automatically.
-4. Dashboard opens after setup and lets you launch clipping, edit settings, manage queues, and view logs.
+1. Run the app.
+2. Complete the setup wizard if no config exists.
+3. Add videos to `input/`, or add YouTube links/channels in the dashboard.
+4. Start clipping from the dashboard.
+5. Collect exported clips from `output/`.
 
-## How Clipping Works
-1. Optional YouTube download from queued links and/or channel fetch.
-2. Whisper transcription turns video audio into timestamped transcript segments.
-3. Transcript chunking keeps prompt size within token budget.
-4. AI clipping scans chunks (plus optional bridge chunks) using Ollama.
-5. Anchor assembly groups only nearby candidates when the transcript remains contiguous, then expands to natural transcript boundaries. The existing `merge_distance_seconds` setting now acts as a soft assembly-gap limit instead of a blind merge window.
-6. Duration filtering enforces constraints, including explicit minimums such as "at least 45 seconds" from your query.
-7. Clip extraction writes final `.mp4` clips to output.
-8. Source video is archived to `temp/` and cleanup policy is applied.
+Processed source videos move to `temp/`. Runtime config lives in `config/config.json`.
 
-## Architecture (Professional Overview)
+## Project Map
 
-### Entry + Bootstrap
-- `run.bat` / `run.ps1`: top-level launch entrypoints.
-- `launcher/run.bat` / `launcher/run.ps1`: create/activate venv, call `setup_env.py`, then `main.py`.
-- `setup_env.py`: installs Python deps, resolves Torch mode (CPU/CUDA), stores setup cache in `system/setup_state.json`, warns about missing external tools.
-
-### Application Core
-- `main.py`: startup orchestration.
-  - Ensures folders exist.
-  - Config validation + migration fallback.
-  - Starts Setup Wizard or Dashboard.
-- `core/engine.py`: runtime orchestrator.
-  - Download -> transcribe -> chunk -> AI scan -> anchor assembly -> filter -> extract -> archive.
-  - Writes live progress to `system/status.json`.
-  - Handles temporary cleanup and resource offload (Whisper + CUDA + Ollama).
-- `core/ai_pipeline.py`: Ollama chat layer.
-  - Chunk scanner with retries and strict parsing.
-  - JSON cleaning/repair fallback for resilient outputs.
-- `core/clipping.py`: anchor clustering, transcript-boundary expansion, and final video cutting with FFmpeg stream-copy trimming.
-- `core/yt_handler.py`: YouTube ingestion.
-  - URL normalization, channel RSS fetch, history tracking.
-  - Multi-strategy yt-dlp download with format probing.
-- `core/format_checker.py`: format fallback policy (`2K -> 1080p -> progressive -> generic`).
-
-### User Interface Layer
-- `ui/setup_wizard.py`: guided first-run setup.
-  - Hardware detect, model recommendation, token plan, config generation.
-- `ui/dashboard.py`: operational control center.
-  - Settings editor, queue manager, channel manager, logs viewer, info panel.
-- `ui/components.py`: shared terminal components (logo panel, clear, editor integration).
-
-### Utilities + Contracts
-- `utils/validators.py`: schema defaults, validation, config migration, profile I/O.
-- `utils/model_selector.py`: model policy, Ollama availability, token planning helpers.
-- `utils/hardware_detect.py`: CPU/RAM/GPU probing and runtime budget estimates.
-- `utils/logging_setup.py`: rotating file logs + console log policy.
-
-## Key Runtime Files
-- `config/config.json`: primary app config (all runtime behavior).
-- `config/hardware_profile.json`: detected hardware snapshot.
-- `config/model_profile.json`: selected model + token planning details.
-- `system/setup_state.json`: environment/bootstrap cache.
-- `system/status.json`: current engine progress.
-- `system/downloaded_youtube_links.txt`: downloaded history.
-- `system/fetched_youtube_links.txt`: fetched history.
-- `logs/app.log`: rotating runtime logs.
-
-## Folder Map
 ```text
-AI_Auto_clipper/
-|-- assets/
-|   `-- ai-auto-clipper-logo.svg
-|-- launcher/
-|   |-- run.bat
-|   `-- run.ps1
-|-- core/
-|   |-- engine.py
-|   |-- ai_pipeline.py
-|   |-- clipping.py
-|   |-- yt_handler.py
-|   `-- format_checker.py
-|-- ui/
-|   |-- setup_wizard.py
-|   |-- dashboard.py
-|   `-- components.py
-|-- utils/
-|   |-- validators.py
-|   |-- model_selector.py
-|   |-- hardware_detect.py
-|   `-- logging_setup.py
-|-- config/
-|-- input/
-|-- output/
-|-- temp/
-|-- system/
-|-- logs/
-|-- setup_env.py
-|-- main.py
-|-- run.bat
-`-- run.ps1
+core/       clipping engine, AI pipeline, YouTube handling, FFmpeg extraction
+ui/         setup wizard and terminal dashboard
+utils/      config validation, logging, hardware/model helpers
+input/      source videos
+output/     exported clips
+temp/       processed source archive
 ```
 
-## Notes
-- Input videos go in `input/`.
-- Exported clips go to `output/` (or your custom output path from setup/settings).
-- Processed source videos are moved to `temp/`.
-- Model policy enforces thinking-capable models with at least 8b parameters.
-- AI output parsing is strict by design to keep extraction stable.
+## Verify
+
+```powershell
+python -m compileall -q main.py core ui utils setup_env.py tests
+python -m unittest discover -s tests
+```
+
+## Credits
+
+Created by Erich Johannes Wessel.
 
 ## License
-Apache License 2.0 (`LICENSE`)
+
+Apache License 2.0. See `LICENSE`.
