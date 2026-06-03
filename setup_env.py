@@ -166,12 +166,54 @@ def _detect_linux_package_manager() -> Optional[str]:
     return None
 
 
+def _dedupe_paths(paths: List[Path]) -> List[Path]:
+    seen: set[str] = set()
+    deduped: List[Path] = []
+    for path in paths:
+        key = str(path).lower() if os.name == "nt" else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def _find_ollama_executable() -> Optional[str]:
+    discovered = shutil.which("ollama")
+    if discovered:
+        return discovered
+
+    candidates: List[Path] = []
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            candidates.append(Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe")
+        for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(env_name)
+            if root:
+                candidates.append(Path(root) / "Ollama" / "ollama.exe")
+    else:
+        candidates.extend(
+            Path(path)
+            for path in (
+                "/opt/homebrew/bin/ollama",
+                "/usr/local/bin/ollama",
+                "/usr/bin/ollama",
+            )
+        )
+
+    for candidate in _dedupe_paths(candidates):
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def _collect_dependency_status() -> Dict[str, Any]:
     return {
         "python": shutil.which("python") is not None or shutil.which("python3") is not None,
         "ffmpeg": shutil.which("ffmpeg") is not None,
         "ffprobe": shutil.which("ffprobe") is not None,
-        "ollama": shutil.which("ollama") is not None,
+        "ollama": _find_ollama_executable() is not None,
         "node": shutil.which("node") is not None,
         "deno": shutil.which("deno") is not None,
         "yt_dlp_module": importlib.util.find_spec("yt_dlp") is not None,
@@ -320,10 +362,13 @@ def check_external_tools() -> bool:
     else:
         print(f"- youtube_cookie_probe: WARNING ({probe_message})")
 
-    if not missing_required and not missing_optional:
+    if missing_optional:
+        print(f"Optional tools missing: {', '.join(missing_optional)}")
+
+    if not missing_required:
         return True
 
-    missing_tools = sorted(set(missing_required + missing_optional))
+    missing_tools = sorted(set(missing_required))
     commands, notes = _build_install_commands(missing_tools)
     if commands:
         total_estimate = sum(item[1] for item in commands)
@@ -385,7 +430,12 @@ def should_skip_setup(
         return False
     if state.get("torch_request") != requested_torch:
         return False
-    if state.get("torch_target") != resolved_torch_target:
+
+    installed_mode = str(state.get("torch_installed_mode") or "").lower().strip()
+    if requested_torch == "auto" and installed_mode in {"cpu", "cuda", "skip"}:
+        return torch_satisfies_target(torch_info, installed_mode)
+
+    if str(state.get("torch_target") or "").lower().strip() != resolved_torch_target:
         return False
     return torch_satisfies_target(torch_info, resolved_torch_target)
 
@@ -457,6 +507,7 @@ def main() -> int:
         "requirements_hash": req_hash,
         "torch_request": args.torch,
         "torch_target": torch_target,
+        "torch_resolved_target": torch_target,
         "torch_installed_mode": resolved_torch_mode,
         "torch_version": torch_info_after.get("version"),
         "torch_cuda_available": torch_info_after.get("cuda_available"),

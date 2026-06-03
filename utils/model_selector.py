@@ -4,9 +4,11 @@ import logging
 import math
 import os
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -92,33 +94,127 @@ def ollama_api_reachable(ollama_url: str, timeout: float = 3.0) -> bool:
     return False
 
 
-def ensure_ollama_running(ollama_url: str, logger: logging.Logger, timeout_seconds: int = 20) -> bool:
-    if ollama_api_reachable(ollama_url):
-        return True
+def _dedupe_paths(paths: List[Path]) -> List[Path]:
+    seen: set[str] = set()
+    deduped: List[Path] = []
+    for path in paths:
+        key = str(path).lower() if os.name == "nt" else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
 
-    logger.info("Ollama service not detected, starting `ollama serve`.")
+
+def _windows_ollama_dir_candidates() -> List[Path]:
+    candidates: List[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "Ollama")
+
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(env_name)
+        if root:
+            candidates.append(Path(root) / "Ollama")
+
+    return _dedupe_paths(candidates)
+
+
+def _find_ollama_cli() -> Optional[str]:
+    discovered = shutil.which("ollama")
+    if discovered:
+        return discovered
+
+    candidates: List[Path] = []
+    if os.name == "nt":
+        candidates.extend(path / "ollama.exe" for path in _windows_ollama_dir_candidates())
+    else:
+        candidates.extend(
+            Path(path)
+            for path in (
+                "/opt/homebrew/bin/ollama",
+                "/usr/local/bin/ollama",
+                "/usr/bin/ollama",
+            )
+        )
+
+    for candidate in _dedupe_paths(candidates):
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _find_windows_ollama_app() -> Optional[str]:
+    if os.name != "nt":
+        return None
+
+    for install_dir in _windows_ollama_dir_candidates():
+        for filename in ("ollama app.exe", "Ollama app.exe", "Ollama.exe"):
+            candidate = install_dir / filename
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+def _ollama_start_commands() -> List[tuple[str, List[str]]]:
+    commands: List[tuple[str, List[str]]] = []
+
+    cli = _find_ollama_cli()
+    if cli:
+        commands.append(("ollama serve", [cli, "serve"]))
+
+    if os.name == "nt":
+        app = _find_windows_ollama_app()
+        if app:
+            commands.append(("Ollama Windows app", [app]))
+    elif os.name == "posix" and hasattr(os, "uname") and os.uname().sysname.lower() == "darwin":
+        if shutil.which("open"):
+            commands.append(("Ollama macOS app", ["open", "-a", "Ollama"]))
+
+    return commands
+
+
+def _start_ollama_process(command: List[str], logger: logging.Logger) -> bool:
     startup_kwargs: Dict[str, Any] = {
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
     if os.name == "nt":
         startup_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-        startup_kwargs["shell"] = True
-    command: Any = ["ollama", "serve"]
-    if os.name == "nt":
-        command = "ollama serve"
+    else:
+        startup_kwargs["start_new_session"] = True
+
     try:
         subprocess.Popen(command, **startup_kwargs)
     except Exception as exc:
-        logger.error("Unable to start Ollama service: %s", exc)
+        logger.warning("Unable to start Ollama command `%s`: %s", " ".join(command), exc)
+        return False
+    return True
+
+
+def ensure_ollama_running(ollama_url: str, logger: logging.Logger, timeout_seconds: int = 45) -> bool:
+    if ollama_api_reachable(ollama_url):
+        return True
+
+    commands = _ollama_start_commands()
+    if not commands:
+        logger.error("Ollama is not reachable and no Ollama executable could be found.")
         return False
 
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        if ollama_api_reachable(ollama_url):
-            return True
-        time.sleep(1.0)
-    return False
+    wait_per_attempt = max(5, int(timeout_seconds / max(1, len(commands))))
+    for label, command in commands:
+        logger.info("Ollama service not detected, trying to start %s.", label)
+        if not _start_ollama_process(command, logger):
+            continue
+
+        deadline = time.time() + wait_per_attempt
+        while time.time() < deadline:
+            if ollama_api_reachable(ollama_url):
+                logger.info("Ollama is ready at %s.", normalize_ollama_url(ollama_url))
+                return True
+            time.sleep(1.0)
+
+    return ollama_api_reachable(ollama_url)
 
 
 def fetch_local_models(ollama_url: str, timeout: float = 10.0) -> List[Dict[str, Any]]:

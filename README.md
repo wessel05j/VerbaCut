@@ -18,7 +18,7 @@ AI Auto Clipper takes long videos, transcribes them, asks a local AI model to fi
 - Python 3.10 or newer
 - Git
 - FFmpeg available in `PATH`
-- Ollama running locally
+- Ollama installed locally
 
 ## Quick Start
 
@@ -32,6 +32,19 @@ Alternative Windows launcher:
 
 ```powershell
 .\run.ps1
+```
+
+The Windows launchers automatically install the `aiclip` command shortcut for your user account.
+Open a new terminal after the first launch, then run the app from anywhere:
+
+```powershell
+aiclip
+```
+
+If the automatic shortcut setup fails, run the installer manually:
+
+```powershell
+.\launcher\install-command.ps1
 ```
 
 macOS/Linux:
@@ -51,6 +64,7 @@ python main.py
 4. Start clipping from the dashboard.
 5. Collect exported clips from `output/`.
 
+If Ollama is installed but not running, the setup wizard and clipping engine try to start it automatically before failing.
 Processed source videos move to `temp/`. Runtime config lives in `config/config.json`.
 
 ## Project Map

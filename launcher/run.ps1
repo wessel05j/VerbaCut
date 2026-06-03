@@ -2,6 +2,17 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $projectRoot
+$venvPython = Join-Path $projectRoot "venv\Scripts\python.exe"
+$commandInstaller = Join-Path $PSScriptRoot "install-command.ps1"
+
+if (Test-Path $commandInstaller) {
+    try {
+        & $commandInstaller -Quiet
+    }
+    catch {
+        Write-Host "Warning: Could not install the 'aiclip' terminal shortcut automatically." -ForegroundColor Yellow
+    }
+}
 
 try {
     python --version | Out-Null
@@ -17,15 +28,13 @@ if (-not (Test-Path "venv\Scripts\python.exe")) {
     python -m venv venv
 }
 
-& ".\venv\Scripts\Activate.ps1"
-
 Write-Host "Preparing runtime dependencies..."
-python setup_env.py --torch auto
+& $venvPython setup_env.py --torch auto
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Dependency setup failed." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-python main.py @args
+& $venvPython main.py @args
 exit $LASTEXITCODE
 

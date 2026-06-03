@@ -2,6 +2,11 @@
 setlocal
 cd /d "%~dp0\.."
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "launcher\install-command.ps1" -Quiet >nul 2>&1
+if errorlevel 1 (
+    echo Warning: Could not install the 'aiclip' terminal shortcut automatically.
+)
+
 python --version >nul 2>&1
 if errorlevel 1 (
     echo Error: Python is not installed or not in PATH.
@@ -18,23 +23,15 @@ if not exist "venv\Scripts\python.exe" (
     )
 )
 
-call venv\Scripts\activate.bat
-if errorlevel 1 (
-    echo Error: Failed to activate virtual environment.
-    exit /b 1
-)
-
 echo Preparing runtime dependencies...
-python setup_env.py --torch auto
+venv\Scripts\python.exe setup_env.py --torch auto
 if errorlevel 1 (
     echo Error: Dependency setup failed.
-    call venv\Scripts\deactivate.bat >nul 2>&1
     exit /b 1
 )
 
-python main.py %*
+venv\Scripts\python.exe main.py %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
-call venv\Scripts\deactivate.bat >nul 2>&1
 exit /b %EXIT_CODE%
 
