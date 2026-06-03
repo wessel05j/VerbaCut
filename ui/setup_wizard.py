@@ -119,7 +119,7 @@ class SetupWizard:
         self.console.print(
             "[bold cyan]Opening external editor so you can navigate and edit the full prompt.[/bold cyan]"
         )
-        edited = edit_text_in_editor(current_prompt, filename_hint="ai_auto_clipper_system_prompt.txt")
+        edited = edit_text_in_editor(current_prompt, filename_hint="verbacut_system_prompt.txt")
         candidate = edited.strip()
         return candidate or current_prompt
 
@@ -322,7 +322,7 @@ class SetupWizard:
         self.console.print("[bold cyan]Opening editor for user query...[/bold cyan]")
         user_query = edit_text_in_editor(
             default_user_query,
-            filename_hint="ai_auto_clipper_user_query.txt",
+            filename_hint="verbacut_user_query.txt",
         ).strip()
         if not user_query:
             user_query = default_user_query

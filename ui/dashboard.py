@@ -712,7 +712,7 @@ class Dashboard:
                 self.console.print("[cyan]Opening editor for user query...[/cyan]")
                 query = edit_text_in_editor(
                     current_query,
-                    filename_hint="ai_auto_clipper_user_query.txt",
+                    filename_hint="verbacut_user_query.txt",
                 ).strip()
                 if query:
                     self.config["clipping"]["user_query"] = query
@@ -823,7 +823,7 @@ class Dashboard:
         self.console.print("[cyan]Opening external editor for full prompt navigation/editing...[/cyan]")
         prompt_text = edit_text_in_editor(
             current_prompt,
-            filename_hint="ai_auto_clipper_system_prompt.txt",
+            filename_hint="verbacut_system_prompt.txt",
         ).strip()
         if not prompt_text:
             self.console.print("[yellow]System prompt unchanged.[/yellow]")
@@ -907,7 +907,7 @@ class Dashboard:
         overview = Panel(
             (
                 "[bold cyan]System Overview[/bold cyan]\n"
-                "AI Auto Clipper is a local-first clipping pipeline that downloads videos, transcribes speech, "
+                "VerbaCut is a local-first clipping pipeline that downloads videos, transcribes speech, "
                 "finds relevant clips with a reasoning model, and exports final shorts."
             ),
             title="Info",
@@ -1018,7 +1018,7 @@ class Dashboard:
                 self._edit_system_prompt()
                 input("Press Enter to continue...")
             elif choice == "6":
-                self.console.print("[bold cyan]Exiting AI Auto Clipper.[/bold cyan]")
+                self.console.print("[bold cyan]Exiting VerbaCut.[/bold cyan]")
                 return
             elif choice == "7":
                 self._show_info()

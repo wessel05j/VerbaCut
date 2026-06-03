@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Environment bootstrapper for AI Auto Clipper.
+Environment bootstrapper for VerbaCut.
 
 What it does:
 1) Installs/updates Python dependencies from requirements.txt
@@ -441,7 +441,7 @@ def should_skip_setup(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare Python environment for AI Auto Clipper.")
+    parser = argparse.ArgumentParser(description="Prepare Python environment for VerbaCut.")
     parser.add_argument(
         "--torch",
         choices=("auto", "cuda", "cpu", "skip"),

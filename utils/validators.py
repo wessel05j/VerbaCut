@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-APP_NAME = "AI Auto Clipper"
+APP_NAME = "VerbaCut"
 APP_VERSION = "2.0.0"
-APP_GITHUB = "https://github.com/wessel05j/AI_Auto_clipper"
+APP_GITHUB = "https://github.com/wessel05j/VerbaCut"
 
 CONFIG_DIR = "config"
 CONFIG_FILE = "config.json"

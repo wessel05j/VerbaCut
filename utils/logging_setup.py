@@ -50,4 +50,4 @@ def setup_logging(
     logging.getLogger("yt_dlp").setLevel(logging.WARNING)
     logging.getLogger("moviepy").setLevel(logging.WARNING)
     logging.getLogger("py.warnings").setLevel(logging.ERROR)
-    return logging.getLogger("ai_auto_clipper")
+    return logging.getLogger("verbacut")

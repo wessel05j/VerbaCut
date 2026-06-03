@@ -1,2 +1,2 @@
-"""Utility package for AI Auto Clipper."""
+"""Utility package for VerbaCut."""
 

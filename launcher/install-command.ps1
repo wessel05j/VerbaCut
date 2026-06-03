@@ -1,5 +1,5 @@
 param(
-    [string]$CommandName = "aiclip",
+    [string]$CommandName = "verbacut",
     [switch]$Quiet
 )
 
@@ -16,8 +16,8 @@ function Write-Status {
     }
 }
 
-if ($CommandName -ne "aiclip") {
-    Write-Host "Only the built-in command name 'aiclip' is currently supported." -ForegroundColor Yellow
+if ($CommandName -ne "verbacut") {
+    Write-Host "Only the built-in command name 'verbacut' is currently supported." -ForegroundColor Yellow
     exit 1
 }
 

@@ -4,7 +4,7 @@ cd /d "%~dp0\.."
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "launcher\install-command.ps1" -Quiet >nul 2>&1
 if errorlevel 1 (
-    echo Warning: Could not install the 'aiclip' terminal shortcut automatically.
+    echo Warning: Could not install the 'verbacut' terminal shortcut automatically.
 )
 
 python --version >nul 2>&1

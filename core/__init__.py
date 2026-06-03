@@ -1,2 +1,2 @@
-"""Core processing pipeline for AI Auto Clipper."""
+"""Core processing pipeline for VerbaCut."""
 

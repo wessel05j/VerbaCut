@@ -10,7 +10,7 @@ if (Test-Path $commandInstaller) {
         & $commandInstaller -Quiet
     }
     catch {
-        Write-Host "Warning: Could not install the 'aiclip' terminal shortcut automatically." -ForegroundColor Yellow
+        Write-Host "Warning: Could not install the 'verbacut' terminal shortcut automatically." -ForegroundColor Yellow
     }
 }
 

@@ -18,11 +18,11 @@ from utils.validators import APP_GITHUB, APP_NAME, APP_VERSION
 
 
 ASCII_LOGO = r"""
-    _    ___      _   _   _ _____ ___      ____ _     ___ ____  ____  _____ ____
-   / \  |_ _|    / \ | | | |_   _/ _ \    / ___| |   |_ _|  _ \|  _ \| ____|  _ \
-  / _ \  | |    / _ \| | | | | || | | |  | |   | |    | || |_) | |_) |  _| | |_) |
- / ___ \ | |   / ___ \ |_| | | || |_| |  | |___| |___ | ||  __/|  __/| |___|  _ <
-/_/   \_\___| /_/   \_\___/  |_| \___/    \____|_____|___|_|   |_|   |_____|_| \_\
+__     __        _           ____      _
+\ \   / /__ _ __| |__   __ _/ ___|   _| |_
+ \ \ / / _ \ '__| '_ \ / _` | |  | | | | __|
+  \ V /  __/ |  | |_) | (_| | |__| |_| | |_
+   \_/ \___|_|  |_.__/ \__,_|\____\__,_|\__|
 """
 
 
@@ -63,7 +63,7 @@ def startup_animation(console: Console) -> None:
         "Checking local runtime",
         "Preparing AI components",
     ]
-    with console.status("[bold cyan]Booting AI Auto Clipper...", spinner="dots"):
+    with console.status("[bold cyan]Booting VerbaCut...", spinner="dots"):
         for _ in steps:
             time.sleep(0.22)
 

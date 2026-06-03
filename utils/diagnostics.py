@@ -238,7 +238,7 @@ def _normalize_cluster_details(details: Any) -> Dict[Tuple[float, float], Dict[s
 
 class DiagnosticRecorder:
     def __init__(self, artifacts_dir: Optional[Path], logger: Optional[logging.Logger] = None) -> None:
-        self.logger = logger or logging.getLogger("ai_auto_clipper.diagnostics")
+        self.logger = logger or logging.getLogger("verbacut.diagnostics")
         self.artifacts_dir = artifacts_dir.resolve() if artifacts_dir is not None else None
         self._state: Dict[str, Dict[str, Any]] = {}
         if self.artifacts_dir is not None:
