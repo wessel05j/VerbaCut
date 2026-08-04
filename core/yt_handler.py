@@ -36,6 +36,14 @@ class DownloadResult:
     error: Optional[str] = None
 
 
+@dataclass
+class FormatProbeResult:
+    acceptable: bool
+    strategy: Optional[str] = None
+    decision: Optional[FormatDecision] = None
+    error: Optional[str] = None
+
+
 class YTHandler:
     DEFAULT_BROWSERS = ("firefox", "edge", "chrome", "brave", "opera", "vivaldi")
     VIDEO_FILE_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov"}
@@ -52,10 +60,12 @@ class YTHandler:
         base_dir: Path,
         logger: logging.Logger,
         browser_priority: Optional[Sequence[str]] = None,
+        maximum_quality_rank: Optional[int] = None,
     ) -> None:
         self.base_dir = Path(base_dir)
         self.logger = logger
         self.browser_priority = tuple(browser_priority or self.DEFAULT_BROWSERS)
+        self.maximum_quality_rank = maximum_quality_rank
 
         self._cookies_checked = False
         self._cookies_file: Optional[Path] = None
@@ -337,6 +347,51 @@ class YTHandler:
             configured.pop("cookiefile", None)
             configured.pop("cookiesfrombrowser", None)
         return configured
+
+    def probe_download_format(self, url: str) -> FormatProbeResult:
+        """Verify that at least one normal download strategy exposes an acceptable stream."""
+        normalized = self.normalize_video_url(url)
+        if not normalized:
+            return FormatProbeResult(acceptable=False, error="Invalid YouTube URL or video ID.")
+
+        base_opts: Dict[str, Any] = {
+            "quiet": True,
+            "skip_download": True,
+            "noprogress": True,
+            "no_warnings": True,
+            "http_headers": {
+                "User-Agent": self.USER_AGENT,
+                "Accept-Language": "en-us,en;q=0.5",
+            },
+            "socket_timeout": 60,
+            "retries": 5,
+            "ignoreerrors": False,
+            "allow_unplayable_formats": False,
+            "ignoreconfig": True,
+            "noplaylist": True,
+            "logger": _SilentYDLLogger(),
+        }
+        if self._js_runtimes:
+            base_opts["js_runtimes"] = dict(self._js_runtimes)
+            base_opts["remote_components"] = ["ejs:github"]
+
+        last_error = "All format-probe strategies failed."
+        for strategy in self._download_strategies():
+            ydl_opts = self._configure_strategy_opts(base_opts, strategy)
+            try:
+                decision = self._probe_and_decide_format(normalized, ydl_opts)
+            except Exception as exc:
+                last_error = f"{strategy['name']}: {self._summarize_exception(exc)}"
+                continue
+            if decision.acceptable and decision.format_string:
+                return FormatProbeResult(
+                    acceptable=True,
+                    strategy=str(strategy["name"]),
+                    decision=decision,
+                )
+            last_error = f"{strategy['name']}: {decision.reason or 'no acceptable format found'}"
+
+        return FormatProbeResult(acceptable=False, error=last_error)
 
     def _find_cookie_file(self) -> Optional[Path]:
         for candidate in (
@@ -654,7 +709,7 @@ class YTHandler:
                 quality_label="below-1080",
                 reason="Probe did not return video metadata.",
             )
-        return choose_download_format(info)
+        return choose_download_format(info, maximum_quality_rank=self.maximum_quality_rank)
 
     def _matching_local_video_files(
         self,

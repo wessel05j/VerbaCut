@@ -89,6 +89,30 @@ If automatic shortcut setup fails, run:
 .\launcher\install-command.ps1
 ```
 
+## Headless / scheduled runs
+
+Use `headless.py` for background jobs. It validates yt-dlp, probes every source for an
+acceptable 1080-class stream before downloading, caps acquisition at 1080 for efficient
+1080p production, isolates runtime files in the supplied workspace, and never waits for
+terminal input or overwrites the normal interactive config.
+
+Preflight only:
+
+```powershell
+.\venv\Scripts\python.exe .\headless.py --links-file .\links.txt --workspace .\scheduled-run --minimum-sources 3 --preflight-only
+```
+
+Full run:
+
+```powershell
+.\venv\Scripts\python.exe .\headless.py --links-file .\links.txt --workspace .\scheduled-run --query-file .\query.txt --minimum-sources 3 --minimum-exports 8
+```
+
+Each invocation writes `headless_result.json` in the workspace and returns a nonzero exit
+code when dependency/config preflight fails, too few sources expose 1080-class streams, the
+engine fails, or too few clips are exported. Scheduled jobs should inspect that file before
+continuing downstream.
+
 ## First Run
 
 1. Start VerbaCut.

@@ -88,12 +88,34 @@ class ClippingEngine:
 
     TRANSCRIPT_CHECKPOINT_VERSION = 2
 
-    def __init__(self, base_dir: Path, config: Dict[str, Any], logger: logging.Logger, console: Console) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        config: Dict[str, Any],
+        logger: logging.Logger,
+        console: Console,
+        *,
+        interactive: bool = True,
+        persist_config: bool = True,
+    ) -> None:
         self.base_dir = base_dir
         self.config = config
         self.logger = logger
         self.console = console
-        self.yt_handler = YTHandler(base_dir=base_dir, logger=logger)
+        self.interactive = bool(interactive)
+        self.persist_config = bool(persist_config)
+        configured_quality_rank = config.get("clipping", {}).get("max_download_quality_rank")
+        maximum_quality_rank = None
+        if configured_quality_rank is not None:
+            try:
+                maximum_quality_rank = int(configured_quality_rank)
+            except (TypeError, ValueError):
+                maximum_quality_rank = None
+        self.yt_handler = YTHandler(
+            base_dir=base_dir,
+            logger=logger,
+            maximum_quality_rank=maximum_quality_rank,
+        )
 
         paths_cfg = config.get("paths", {})
         self.input_dir = base_dir / str(paths_cfg.get("input_dir", "input"))
@@ -113,7 +135,8 @@ class ClippingEngine:
         self.run_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _persist_config(self) -> None:
-        save_json_file(self._config_paths["config_file"], self.config)
+        if self.persist_config:
+            save_json_file(self._config_paths["config_file"], self.config)
 
     def _write_status(self, payload: Dict[str, Any]) -> None:
         save_json_file(self.status_file, payload)
@@ -592,6 +615,11 @@ class ClippingEngine:
                 border_style="yellow",
             )
         )
+        if not self.interactive:
+            self.logger.warning(
+                "YouTube download issues recorded during a non-interactive run; continuing without prompting."
+            )
+            return
         input("Press Enter to continue pipeline run...")
 
     def _resolve_runtime_chunk_cap(

@@ -67,7 +67,7 @@ def classify_quality(width: Optional[int], height: Optional[int], format_note: s
 
     if width_value >= 3840 or "2160" in note or height_value >= 1600:
         return QUALITY_2160, QUALITY_LABELS[QUALITY_2160]
-    if width_value >= 2560 or "1440" in note or height_value >= 1000:
+    if width_value >= 2560 or "1440" in note or height_value >= 1200:
         return QUALITY_1440, QUALITY_LABELS[QUALITY_1440]
     if width_value >= 1920 or "1080" in note or height_value >= 800:
         return QUALITY_1080, QUALITY_LABELS[QUALITY_1080]
@@ -145,7 +145,10 @@ def _decision_from_candidate(candidate: Dict[str, Any], *, acceptable: bool, rea
     )
 
 
-def choose_download_format(extracted_info: Dict[str, Any]) -> FormatDecision:
+def choose_download_format(
+    extracted_info: Dict[str, Any],
+    maximum_quality_rank: Optional[int] = None,
+) -> FormatDecision:
     """
     Select the highest acceptable stream across the full format inventory.
     Preference order:
@@ -174,6 +177,15 @@ def choose_download_format(extracted_info: Dict[str, Any]) -> FormatDecision:
             quality_label=QUALITY_LABELS[QUALITY_BELOW_1080],
             reason="No valid video streams were exposed by yt-dlp.",
         )
+
+    if maximum_quality_rank is not None:
+        bounded = [
+            candidate
+            for candidate in candidates
+            if int(candidate.get("quality_rank", QUALITY_BELOW_1080)) <= int(maximum_quality_rank)
+        ]
+        if bounded:
+            candidates = bounded
 
     candidates.sort(key=_candidate_sort_key, reverse=True)
     best = candidates[0]
