@@ -7,13 +7,41 @@ from pathlib import Path
 from unittest import mock
 
 from rich.console import Console
+from rich.progress import Progress
 
 from core.engine import ClippingEngine
 from core.format_checker import FormatDecision, QUALITY_1080, choose_download_format
 from core.yt_handler import YTHandler
+from headless import _enable_workspace_diagnostics, _headless_console
 
 
 class HeadlessEngineTests(unittest.TestCase):
+    def test_headless_console_finalizes_progress_to_plain_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            with _headless_console(workspace) as console:
+                self.assertFalse(console.is_terminal)
+                with Progress(console=console) as progress:
+                    task = progress.add_task("processing", total=1)
+                    progress.advance(task)
+
+            console_log = (workspace / "engine_console.log").read_text(encoding="utf-8")
+
+        self.assertIn("processing", console_log)
+
+    def test_headless_diagnostics_are_forced_into_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir).resolve()
+            config = {"diagnostics": {"enabled": False, "artifacts_dir": "elsewhere"}}
+
+            _enable_workspace_diagnostics(config, workspace)
+
+        self.assertTrue(config["diagnostics"]["enabled"])
+        self.assertEqual(
+            config["diagnostics"]["artifacts_dir"],
+            str(workspace / "system" / "diagnostics"),
+        )
+
     def test_download_warning_does_not_prompt_in_headless_mode(self) -> None:
         engine = object.__new__(ClippingEngine)
         engine.console = Console(quiet=True)

@@ -7,9 +7,10 @@ import json
 import logging
 import re
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 import yt_dlp.version
 from rich.console import Console
@@ -64,6 +65,33 @@ def _write_result(workspace: Path, payload: Dict[str, Any]) -> None:
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+@contextmanager
+def _headless_console(workspace: Path) -> Iterator[Console]:
+    """Use a regular UTF-8 file instead of Rich's legacy Windows console API."""
+
+    log_path = workspace / "engine_console.log"
+    with log_path.open("a", encoding="utf-8", newline="\n") as stream:
+        console = Console(
+            file=stream,
+            force_terminal=False,
+            color_system=None,
+            no_color=True,
+            width=120,
+        )
+        yield console
+
+
+def _enable_workspace_diagnostics(config: Dict[str, Any], workspace: Path) -> None:
+    """Persist transcripts and exact clip records before resumable cache cleanup."""
+
+    diagnostics = config.setdefault("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        config["diagnostics"] = diagnostics
+    diagnostics["enabled"] = True
+    diagnostics["artifacts_dir"] = str(workspace / "system" / "diagnostics")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -173,22 +201,23 @@ def main(argv: List[str] | None = None) -> int:
     config["paths"]["system_dir"] = str(workspace / "system")
     config["clipping"]["youtube_links"] = accepted
     config["clipping"]["max_download_quality_rank"] = QUALITY_1080
+    _enable_workspace_diagnostics(config, workspace)
     if args.query_file:
         config["clipping"]["user_query"] = args.query_file.resolve().read_text(
             encoding="utf-8-sig"
         ).strip()
 
-    console = Console()
-    engine = ClippingEngine(
-        base_dir=base_dir,
-        config=config,
-        logger=logger,
-        console=console,
-        interactive=False,
-        persist_config=False,
-    )
     try:
-        engine.run()
+        with _headless_console(workspace) as console:
+            engine = ClippingEngine(
+                base_dir=base_dir,
+                config=config,
+                logger=logger,
+                console=console,
+                interactive=False,
+                persist_config=False,
+            )
+            engine.run()
     except Exception as exc:
         logger.exception("Headless VerbaCut run failed")
         _write_result(
@@ -199,6 +228,8 @@ def main(argv: List[str] | None = None) -> int:
                 "yt_dlp_version": installed_version,
                 "probes": probes,
                 "error": str(exc),
+                "engine_console_log": str((workspace / "engine_console.log").resolve()),
+                "diagnostics_dir": str((workspace / "system" / "diagnostics").resolve()),
             },
         )
         return 3
@@ -222,6 +253,8 @@ def main(argv: List[str] | None = None) -> int:
             "probes": probes,
             "minimum_exports": minimum_exports,
             "exports": exports,
+            "engine_console_log": str((workspace / "engine_console.log").resolve()),
+            "diagnostics_dir": str((workspace / "system" / "diagnostics").resolve()),
         },
     )
     return 0 if status == "complete" else 4
