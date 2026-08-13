@@ -5,6 +5,7 @@ __pycache__/
 output/
 input/
 system/
+profiles/*.local.json
 temp/
 venv/
 lm_studio_path.cfg

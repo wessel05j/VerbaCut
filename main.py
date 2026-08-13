@@ -21,7 +21,15 @@ def main() -> int:
     if not is_valid or config is None:
         missing_config = bool(errors) and all("not found" in str(error).lower() for error in errors)
         if errors and not missing_config:
-            logger.warning("Config invalid. Starting setup wizard. Issues: %s", "; ".join(errors))
+            logger.error("Config invalid. Setup preserved; refusing to launch the setup wizard. Issues: %s", "; ".join(errors))
+            console.print("[bold red]VerbaCut configuration needs attention.[/bold red]")
+            for error in errors:
+                console.print(f"[red]- {error}[/red]")
+            console.print(
+                "[yellow]Your existing config and saved prompts were preserved. "
+                "Fix the listed setting or explicitly choose Re-run Setup Wizard from the dashboard.[/yellow]"
+            )
+            return 2
         elif missing_config:
             logger.info("No config found. Starting setup wizard.")
         wizard = SetupWizard(base_dir=base_dir, console=console, logger=logger)

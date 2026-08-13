@@ -104,6 +104,8 @@ class ClippingEngine:
         self.console = console
         self.interactive = bool(interactive)
         self.persist_config = bool(persist_config)
+        self.stop_after_downloads = False
+        self.required_download_successes = 0
         configured_quality_rank = config.get("clipping", {}).get("max_download_quality_rank")
         maximum_quality_rank = None
         if configured_quality_rank is not None:
@@ -140,6 +142,11 @@ class ClippingEngine:
 
     def _write_status(self, payload: Dict[str, Any]) -> None:
         save_json_file(self.status_file, payload)
+
+    def _after_downloads(self, summary: Dict[str, Any]) -> None:
+        """Automation hook invoked after the complete YouTube queue is attempted."""
+
+        return None
 
     def _temp_run_save_enabled(self) -> bool:
         runtime_cfg = self.config.get("runtime", {})
@@ -211,6 +218,8 @@ class ClippingEngine:
         return self._resume_signature_from_config(self.config)
 
     def _disk_resume_signature(self) -> str:
+        if not self.persist_config:
+            return self._current_resume_signature()
         on_disk = load_optional_profile(self._config_paths["config_file"])
         if not on_disk:
             return self._current_resume_signature()
@@ -1083,6 +1092,21 @@ class ClippingEngine:
                     status["current_step"] = "downloading_links"
                     self._write_status(status)
                     download_summary = self._download_pending_links(progress_callback=on_download_progress)
+                    self._after_downloads(download_summary)
+                    successful_downloads = int(download_summary.get("downloaded", 0)) + int(
+                        download_summary.get("already_downloaded", 0)
+                    )
+                    if (
+                        self.required_download_successes > 0
+                        and successful_downloads < self.required_download_successes
+                    ):
+                        status["current_step"] = "download_failed"
+                        self._write_status(status)
+                        return
+                    if self.stop_after_downloads:
+                        status["current_step"] = "downloads_complete"
+                        self._write_status(status)
+                        return
                     if queued_count == 0:
                         progress.update(links_task, total=1, completed=1, description="[yellow]YouTube links: 0/0")
                         progress.update(

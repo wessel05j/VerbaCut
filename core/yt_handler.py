@@ -482,7 +482,7 @@ class YTHandler:
         hours_limit: int = 24,
         playlistend: int = 15,
     ) -> List[str]:
-        threshold = datetime.now() - timedelta(hours=max(1, int(hours_limit)))
+        threshold = datetime.now().astimezone() - timedelta(hours=max(1, int(hours_limit)))
         seen: set[str] = set()
         recent_links: List[str] = []
 
@@ -547,7 +547,7 @@ class YTHandler:
                     try:
                         published = datetime.fromisoformat(
                             published_match.group(1).replace("Z", "+00:00")
-                        ).replace(tzinfo=None)
+                        ).astimezone()
                     except ValueError:
                         continue
                     if published < threshold:
@@ -565,6 +565,59 @@ class YTHandler:
                     if count >= max(1, int(playlistend)):
                         break
 
+                if len(entries) >= 15 and count >= len(entries) and count < max(1, int(playlistend)):
+                    self.logger.info(
+                        "RSS feed reached its %s-item limit for %s; using detailed channel metadata "
+                        "to complete the requested %s-hour window.",
+                        len(entries),
+                        normalized_channel,
+                        hours_limit,
+                    )
+                    detailed_opts: Dict[str, Any] = {
+                        "quiet": True,
+                        "skip_download": True,
+                        "extract_flat": False,
+                        "playlistend": max(1, int(playlistend)),
+                        "ignoreerrors": True,
+                        "no_warnings": True,
+                        "socket_timeout": 60,
+                        "ignoreconfig": True,
+                        "logger": _SilentYDLLogger(),
+                    }
+                    self._apply_cookies_to_opts(detailed_opts)
+                    try:
+                        with yt_dlp.YoutubeDL(detailed_opts) as detailed_ydl:
+                            detailed = detailed_ydl.extract_info(normalized_channel, download=False)
+                    except Exception as exc:
+                        self.logger.warning(
+                            "Detailed channel fallback failed for %s: %s",
+                            normalized_channel,
+                            exc,
+                        )
+                        continue
+
+                    for item in (detailed or {}).get("entries", []):
+                        if not isinstance(item, dict):
+                            continue
+                        timestamp = item.get("timestamp") or item.get("release_timestamp")
+                        if timestamp is None:
+                            continue
+                        try:
+                            published = datetime.fromtimestamp(float(timestamp)).astimezone()
+                        except (TypeError, ValueError, OSError):
+                            continue
+                        if published < threshold:
+                            break
+                        raw_url = item.get("webpage_url") or item.get("url") or item.get("id") or ""
+                        url = self.normalize_video_url(str(raw_url))
+                        if not url or url in seen:
+                            continue
+                        seen.add(url)
+                        recent_links.append(url)
+                        count += 1
+                        if count >= max(1, int(playlistend)):
+                            break
+
         return recent_links
 
     def fetch_recent_links(
@@ -572,9 +625,11 @@ class YTHandler:
         channels: Sequence[str],
         hours_limit: int = 24,
         playlistend: int = 15,
+        mark_fetched: bool = True,
+        respect_fetched_history: bool = True,
     ) -> List[str]:
         downloaded_history = self._load_download_history()
-        fetched_history = self._load_fetched_history()
+        fetched_history = self._load_fetched_history() if respect_fetched_history else set()
         recent_links = self.list_recent_channel_links(
             channels=channels,
             hours_limit=hours_limit,
@@ -583,11 +638,12 @@ class YTHandler:
 
         links_found: List[str] = []
         for url in recent_links:
-            if url in downloaded_history or url in fetched_history:
+            if url in downloaded_history or (respect_fetched_history and url in fetched_history):
                 continue
             links_found.append(url)
-            fetched_history.add(url)
-            self._add_to_fetched_history(url)
+            if mark_fetched:
+                fetched_history.add(url)
+                self._add_to_fetched_history(url)
         return links_found
 
     @staticmethod

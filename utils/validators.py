@@ -290,7 +290,7 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
         "clipping.channels_hours_limit",
         config["clipping"].get("channels_hours_limit"),
         1,
-        336,
+        8760,
     )
 
     if not isinstance(config["clipping"].get("youtube_links", []), list):

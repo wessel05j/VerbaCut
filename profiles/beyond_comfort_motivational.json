@@ -1,0 +1,7 @@
+{
+  "channel": "https://www.youtube.com/@sam_sulek/videos",
+  "hours_limit": 720,
+  "playlist_limit": 50,
+  "user_query": "Find context-complete spoken Sam Sulek moments, usually 20-90 seconds, with a clear beginning, useful middle, and natural ending. Prioritize discipline, consistency, deliberate training, recovery, honest self-assessment, effort, adaptation, confidence earned through action, and specific lessons that can support substantial original motivational commentary. Prefer moments with strong emotional clarity, clean speech, useful gym or car-talk visuals, and an immediate line that can work as a hook. Exclude silent lifting, music-only sections, intros, outros, sponsor reads, filler, jokes without a lesson, repeated phrases, medical claims, fragments, and moments whose meaning depends on missing context.",
+  "system_prompt": "You are an expert transcript clip selector for the user's request. Input is a JSON transcript formatted as [[start, end, text], ...], with start and end in seconds. Output only strict JSON formatted as [[start1, end1, score1], [start2, end2, score2], ...]. The score is 1-10 for match strength. Never add explanations, keys, comments, markdown, or prose. Keep full timestamp precision. Each clip must express a complete thought with a clear beginning, useful middle, and natural end. Prefer natural pauses and context-rich moments that directly match the user query. Return [] when nothing qualifies; never return a blank response, object, or null."
+}

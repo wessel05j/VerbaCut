@@ -120,6 +120,36 @@ continuing downstream.
 3. Choose the local Ollama model.
 4. Set your clipping goal, output folder, and processing preferences.
 5. Add videos to `input/` or add YouTube links/channels in the dashboard.
+
+VerbaCut only launches the setup wizard when `config/config.json` is genuinely absent. If an
+existing config contains an invalid value, startup now reports that value and preserves the
+config and saved prompts instead of silently starting setup again.
+
+## Unattended background run
+
+The bundled Beyond Comfort profile keeps its motivational finder prompt under version control
+without storing machine-specific settings. To fetch the last 720 hours of the configured Sam
+Sulek channel and let the engine continue offline in a hidden process, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_background_automation.ps1
+```
+
+The launcher waits only for an atomic startup acknowledgement. Progress is recorded in
+`system/automation/latest_state.json`, and the worker keeps running after the launching terminal
+or scheduled automation exits. Concurrent starts are rejected by a PID-aware lock. The normal
+download history prevents previously downloaded source videos from being fetched again.
+
+If the launcher is invoked again while its own healthy worker is already running, it attaches to
+that run instead of starting a duplicate download or engine process. Stale locks are recovered
+automatically.
+
+Pass `-WaitForHandoff` when the caller should stay attached until every queued video has either
+downloaded successfully or failed, and transcription has begun. After that bounded handoff, the
+worker continues the local transcription, selection, and clipping stages offline.
+
+Use `-DryRun` to test configuration, dependencies, the saved prompt profile, channel fetching,
+and history filtering without downloading or starting the clipping engine.
 6. Start clipping.
 7. Review exported clips in `output/`.
 

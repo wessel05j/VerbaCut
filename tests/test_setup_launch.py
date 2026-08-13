@@ -3,10 +3,13 @@ from __future__ import annotations
 import logging
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import main
 import setup_env
 from utils.model_selector import ensure_ollama_running
+from utils.validators import build_default_config
 
 
 class SetupStateTests(unittest.TestCase):
@@ -49,6 +52,18 @@ class SetupStateTests(unittest.TestCase):
         )
 
         self.assertFalse(should_skip)
+
+    def test_invalid_existing_config_does_not_launch_setup_wizard(self) -> None:
+        with patch.object(main.Path, "resolve", return_value=Path("C:/fake/main.py")), patch(
+            "main.ensure_runtime_layout"
+        ), patch("main.setup_logging", return_value=logging.getLogger("setup-preserved")), patch(
+            "main.load_validated_config",
+            return_value=(False, build_default_config(), ["clipping.channels_hours_limit is invalid"]),
+        ), patch("main.SetupWizard") as wizard:
+            result = main.main()
+
+        self.assertEqual(result, 2)
+        wizard.assert_not_called()
 
 
 class OllamaStartupTests(unittest.TestCase):
