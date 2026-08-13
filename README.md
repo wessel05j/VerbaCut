@@ -142,7 +142,8 @@ download history prevents previously downloaded source videos from being fetched
 
 If the launcher is invoked again while its own healthy worker is already running, it attaches to
 that run instead of starting a duplicate download or engine process. Stale locks are recovered
-automatically.
+automatically. If a previous worker stopped after creating local source files, the launcher reuses
+that run directory and VerbaCut's checkpoints, then fetches only any still-missing sources.
 
 Pass `-WaitForHandoff` when the caller should stay attached until every queued video has either
 downloaded successfully or failed, and transcription has begun. After that bounded handoff, the

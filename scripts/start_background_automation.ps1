@@ -27,6 +27,7 @@ New-Item -ItemType Directory -Path $automationRoot -Force | Out-Null
 $runId = $null
 $process = $null
 $attachedToExisting = $false
+$resumeRun = $false
 
 if (Test-Path -LiteralPath $lockFile -PathType Leaf) {
     try {
@@ -44,7 +45,37 @@ if (Test-Path -LiteralPath $lockFile -PathType Leaf) {
 }
 
 if (-not $attachedToExisting) {
-    $runId = Get-Date -Format "yyyyMMdd-HHmmss"
+    if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+        try {
+            $previousState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+            $previousRunDir = [System.IO.Path]::GetFullPath([string]$previousState.run_dir)
+            $runsRoot = [System.IO.Path]::GetFullPath((Join-Path $automationRoot "runs"))
+            $unfinished = $previousState.stage -in @(
+                "engine_started", "engine_running", "downloads_complete", "failed"
+            )
+            $safeRunDir = $previousRunDir.StartsWith(
+                $runsRoot.TrimEnd("\") + "\",
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+            $inputDir = Join-Path $previousRunDir "input"
+            $hasInputs = $false
+            if ($safeRunDir -and (Test-Path -LiteralPath $inputDir -PathType Container)) {
+                $hasInputs = $null -ne (Get-ChildItem -LiteralPath $inputDir -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension.ToLowerInvariant() -in @(".mp4", ".mkv", ".webm", ".mov") } |
+                    Select-Object -First 1)
+            }
+            if ($unfinished -and $safeRunDir -and $hasInputs) {
+                $runId = [string]$previousState.run_id
+                $resumeRun = $true
+            }
+        }
+        catch {
+            # A malformed status cannot authorize a resume; start a fresh guarded run.
+        }
+    }
+    if (-not $resumeRun) {
+        $runId = Get-Date -Format "yyyyMMdd-HHmmss"
+    }
 }
 $arguments = @(
     $worker,
@@ -55,6 +86,9 @@ $arguments = @(
 )
 if ($DryRun -and -not $attachedToExisting) {
     $arguments += "--dry-run"
+}
+if ($resumeRun) {
+    $arguments += "--resume-run"
 }
 
 if (-not $attachedToExisting) {

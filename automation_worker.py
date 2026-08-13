@@ -156,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--stop-after-downloads", action="store_true")
+    parser.add_argument("--resume-run", action="store_true")
     return parser
 
 
@@ -212,6 +213,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "stage": "starting",
         "base_dir": str(base_dir),
         "run_dir": str(run_dir),
+        "resumed": bool(args.resume_run),
     }
 
     try:
@@ -274,7 +276,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 run_state.update(stage="dry_run_complete", status="ready", preflight="passed")
                 _write_state(paths["state"], run_state)
                 return 0
-            if not links:
+            existing_inputs = scan_input_videos(run_dir / "input")
+            if not links and not existing_inputs:
                 run_state.update(stage="complete", status="no_new_videos")
                 _write_state(paths["state"], run_state)
                 return 0
@@ -293,6 +296,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             config["clipping"]["system_prompt"] = str(profile["system_prompt"])
             config.setdefault("diagnostics", {})["enabled"] = True
             config["diagnostics"]["artifacts_dir"] = str(run_dir / "system" / "diagnostics")
+            save_json_file(run_dir / "automation_config.snapshot.json", config)
+            run_state.update(existing_input_count=len(existing_inputs))
+            _write_state(paths["state"], run_state)
 
             with _plain_console(run_dir / "engine_console.log") as console:
                 engine = AutomationEngine(
