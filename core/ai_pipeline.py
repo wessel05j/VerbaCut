@@ -502,7 +502,6 @@ class AIPipeline:
         return payload
 
     def _chat_payload(self, payload: dict[str, Any]) -> str:
-
         endpoint = f"{self.ollama_url}/api/chat"
         response = requests.post(
             endpoint,
@@ -536,8 +535,10 @@ class AIPipeline:
     ) -> tuple[str, str, dict[str, Any]]:
         chunking_context = (
             "Chunking context:\n"
-            "- You are seeing one chunk from a larger transcript.\n"
-            "- Avoid selecting clips from leading or trailing chunk edges if context appears incomplete.\n"
+            "- Treat the supplied chunk as the maximum available context window for this decision.\n"
+            "- Read broadly across that window before choosing any clip; a strong quote is not enough if its setup or resolution changes its meaning.\n"
+            "- Select a span only when the available context confirms its premise, development, and conclusion.\n"
+            "- Avoid leading or trailing chunk edges if the available context suggests the thought is incomplete.\n"
             "- Output only JSON."
         )
         serialized_chunk = _serialize_chunk_for_model(chunk)
@@ -552,6 +553,7 @@ class AIPipeline:
             f"Transcript chunk:\n{serialized_chunk}\n\n"
             f"User query:\n{user_query}\n\n"
             "Selection rules:\n"
+            "- Use the widest relevant context in this chunk to evaluate every candidate before scoring it.\n"
             "- Return spans that work as complete clips on their own.\n"
             "- Prefer broader continuous passages over isolated standout lines.\n"
             "- Avoid returning several tiny fragments from the same thought.\n"

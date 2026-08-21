@@ -135,6 +135,12 @@ Sulek channel and let the engine continue offline in a hidden process, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_background_automation.ps1
 ```
 
+On Linux, use the equivalent detached launcher:
+
+```bash
+bash scripts/start_background_automation.sh --wait-for-handoff
+```
+
 The launcher waits only for an atomic startup acknowledgement. Progress is recorded in
 `system/automation/latest_state.json`, and the worker keeps running after the launching terminal
 or scheduled automation exits. Concurrent starts are rejected by a PID-aware lock. The normal

@@ -68,6 +68,42 @@ def _write_state(path: Path, payload: Dict[str, Any]) -> None:
     save_json_file(path, payload)
 
 
+def _write_producer_handoff(
+    path: Path,
+    *,
+    base_dir: Path,
+    run_dir: Path,
+    run_id: str,
+    status: str,
+    links: List[str],
+    source_log: Path,
+) -> None:
+    """Persist the run-scoped paths a downstream producer needs for provenance."""
+
+    output_dir = base_dir / "output"
+    exports = sorted(
+        str(candidate.resolve())
+        for pattern in ("*.mp4", "*.mkv", "*.webm")
+        for candidate in output_dir.glob(pattern)
+        if candidate.is_file() and candidate.stat().st_size > 0
+    )
+    save_json_file(
+        path,
+        {
+            "schema_version": 1,
+            "run_id": run_id,
+            "status": status,
+            "output_dir": str(output_dir.resolve()),
+            "retained_source_dir": str((run_dir / "temp").resolve()),
+            "diagnostics_dir": str((run_dir / "system" / "diagnostics").resolve()),
+            "download_log": str(source_log.resolve()),
+            "source_urls": links,
+            "exports": exports,
+            "written_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    )
+
+
 @contextmanager
 def _worker_lock(path: Path, run_id: str) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,6 +250,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "base_dir": str(base_dir),
         "run_dir": str(run_dir),
         "resumed": bool(args.resume_run),
+        "producer_handoff_file": str((run_dir / "producer_handoff.json").resolve()),
     }
 
     try:
@@ -334,6 +371,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 stage="complete" if final_status in {"complete", "downloads_complete"} else "failed",
                 status=final_status,
                 engine_status=engine_status,
+            )
+            _write_producer_handoff(
+                run_dir / "producer_handoff.json",
+                base_dir=base_dir,
+                run_dir=run_dir,
+                run_id=run_id,
+                status=final_status,
+                links=links,
+                source_log=paths["logs"] / f"{run_id}.log",
             )
             _write_state(paths["state"], run_state)
             return 0 if final_status in {"complete", "downloads_complete"} else 3
