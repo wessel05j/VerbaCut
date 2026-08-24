@@ -476,6 +476,26 @@ class YTHandler:
                 return match.group(1)
         return None
 
+    @staticmethod
+    def _uploads_playlist_url(channel_id: str) -> str:
+        """Return the public uploads playlist for a canonical YouTube channel ID."""
+        return f"https://www.youtube.com/playlist?list=UU{channel_id[2:]}"
+
+    def _resolve_video_timestamp(self, url: str) -> Optional[float]:
+        """Resolve an upload timestamp when flat playlist extraction omits it."""
+        try:
+            metadata = self._probe_video_info(url)
+        except Exception as exc:
+            self.logger.warning("Could not resolve upload date for %s: %s", url, exc)
+            return None
+        if not isinstance(metadata, dict):
+            return None
+        value = metadata.get("timestamp") or metadata.get("release_timestamp")
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
     def list_recent_channel_links(
         self,
         channels: Sequence[str],
@@ -585,9 +605,10 @@ class YTHandler:
                         "logger": _SilentYDLLogger(),
                     }
                     self._apply_cookies_to_opts(detailed_opts)
+                    uploads_playlist = self._uploads_playlist_url(channel_id)
                     try:
                         with yt_dlp.YoutubeDL(detailed_opts) as detailed_ydl:
-                            detailed = detailed_ydl.extract_info(normalized_channel, download=False)
+                            detailed = detailed_ydl.extract_info(uploads_playlist, download=False)
                     except Exception as exc:
                         self.logger.warning(
                             "Detailed channel fallback failed for %s: %s",
@@ -599,7 +620,13 @@ class YTHandler:
                     for item in (detailed or {}).get("entries", []):
                         if not isinstance(item, dict):
                             continue
+                        raw_url = item.get("webpage_url") or item.get("url") or item.get("id") or ""
+                        url = self.normalize_video_url(str(raw_url))
+                        if not url or url in seen:
+                            continue
                         timestamp = item.get("timestamp") or item.get("release_timestamp")
+                        if timestamp is None:
+                            timestamp = self._resolve_video_timestamp(url)
                         if timestamp is None:
                             continue
                         try:
@@ -608,10 +635,6 @@ class YTHandler:
                             continue
                         if published < threshold:
                             break
-                        raw_url = item.get("webpage_url") or item.get("url") or item.get("id") or ""
-                        url = self.normalize_video_url(str(raw_url))
-                        if not url or url in seen:
-                            continue
                         seen.add(url)
                         recent_links.append(url)
                         count += 1

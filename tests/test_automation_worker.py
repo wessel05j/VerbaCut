@@ -105,6 +105,54 @@ class RecentChannelFallbackTests(unittest.TestCase):
 
         self.assertEqual(len(links), 20)
 
+    def test_uploads_playlist_fallback_resolves_flat_entry_dates(self) -> None:
+        class FakeResponse:
+            status_code = 200
+            text = "".join(
+                f"<entry><yt:videoId>AAAAAAAAA{i:02d}</yt:videoId>"
+                f"<published>2026-08-{13 - (i // 3):02d}T01:00:00+00:00</published></entry>"
+                for i in range(15)
+            )
+
+        detailed_entries = [
+            {
+                "id": f"CCCCCCCCC{i:02d}",
+                "url": f"https://www.youtube.com/watch?v=CCCCCCCCC{i:02d}",
+            }
+            for i in range(5)
+        ]
+        handler = YTHandler(Path(tempfile.mkdtemp()), logging.getLogger("recent-fallback"))
+        handler._apply_cookies_to_opts = mock.Mock()
+        handler._resolve_video_timestamp = mock.Mock(
+            return_value=datetime(2026, 8, 8, 1, 0).timestamp()
+        )
+
+        outer = mock.MagicMock()
+        outer.extract_info.return_value = {"channel_id": "UCAuk798iHprjTtwlClkFxMA"}
+        detailed = mock.MagicMock()
+        detailed.extract_info.return_value = {"entries": detailed_entries}
+        managers = [
+            mock.MagicMock(__enter__=mock.Mock(return_value=outer), __exit__=mock.Mock(return_value=False)),
+            mock.MagicMock(__enter__=mock.Mock(return_value=detailed), __exit__=mock.Mock(return_value=False)),
+        ]
+
+        with mock.patch("core.yt_handler.datetime") as fake_datetime, mock.patch(
+            "core.yt_handler.requests.get", return_value=FakeResponse()
+        ), mock.patch("core.yt_handler.yt_dlp.YoutubeDL", side_effect=managers):
+            fake_datetime.now.return_value = datetime(2026, 8, 13, 12, 0).astimezone()
+            fake_datetime.fromisoformat.side_effect = datetime.fromisoformat
+            fake_datetime.fromtimestamp.side_effect = datetime.fromtimestamp
+            links = handler.list_recent_channel_links(
+                ["https://www.youtube.com/@sam_sulek/videos"], hours_limit=720, playlistend=20
+            )
+
+        self.assertEqual(len(links), 20)
+        self.assertEqual(handler._resolve_video_timestamp.call_count, 5)
+        self.assertEqual(
+            detailed.extract_info.call_args.args[0],
+            "https://www.youtube.com/playlist?list=UUAuk798iHprjTtwlClkFxMA",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
