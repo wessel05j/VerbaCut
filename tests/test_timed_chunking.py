@@ -83,6 +83,19 @@ class TimedChunkingTests(TestCase):
             ],
         )
 
+    def test_hardware_pressure_does_not_reduce_transcript_context(self) -> None:
+        engine = object.__new__(ClippingEngine)
+        engine.hardware_profile = {"gpu_vram_gb": 4.0, "ram_gb": 32.0}
+        engine.config = {"runtime": {"setup_intensity": "balanced"}}
+
+        effective, pressure_ratio = engine._resolve_runtime_chunk_cap(
+            model_name="gpt-oss:20b",
+            configured_chunk_tokens=6000,
+        )
+
+        self.assertEqual(effective, 6000)
+        self.assertGreater(pressure_ratio, 1.0)
+
 
 class TranscriptionTests(TestCase):
     def test_transcription_keeps_word_timestamps_for_merged_segments(self) -> None:

@@ -146,6 +146,10 @@ The launcher waits only for an atomic startup acknowledgement. Progress is recor
 or scheduled automation exits. Concurrent starts are rejected by a PID-aware lock. The normal
 download history prevents previously downloaded source videos from being fetched again.
 
+Transcript scans preserve the configured chunk budget whenever it fits after prompt and output
+reserves inside the model context window. Model-size or VRAM pressure is reported for diagnostics but
+does not silently shrink transcript awareness; overlap and bridge chunks retain boundary context.
+
 If the launcher is invoked again while its own healthy worker is already running, it attaches to
 that run instead of starting a duplicate download or engine process. Stale locks are recovered
 automatically. If a previous worker stopped after creating local source files, the launcher reuses

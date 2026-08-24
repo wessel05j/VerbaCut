@@ -637,23 +637,17 @@ class ClippingEngine:
         configured_chunk_tokens: int,
     ) -> tuple[int, float]:
         """
-        Apply runtime token safety based on model size and available hardware budget.
+        Preserve the configured transcript context while reporting hardware pressure.
+
+        Context length is bounded separately by `_resolve_prompt_aware_chunk_cap`, which
+        reserves prompt and output space inside the model's real context window. Reducing
+        transcript context based on model size or VRAM pressure does not reduce the loaded
+        model's memory footprint and materially harms long-form clip selection.
+
         Returns: (effective_chunk_tokens, pressure_ratio)
         pressure_ratio > 1 means model estimate exceeds budget.
         """
-        effective = int(max(900, configured_chunk_tokens))
         billions = model_billions(model_name)
-
-        if billions is not None:
-            if billions <= 8.0:
-                effective = min(effective, 1800)
-            elif billions <= 14.0:
-                effective = min(effective, 2400)
-            elif billions <= 20.0:
-                effective = min(effective, 3000)
-            else:
-                effective = min(effective, 3600)
-
         gpu_vram_gb = float(self.hardware_profile.get("gpu_vram_gb", 0.0) or 0.0)
         ram_gb = float(self.hardware_profile.get("ram_gb", 0.0) or 0.0)
         intensity = str(self.config.get("runtime", {}).get("setup_intensity", "balanced")).lower().strip()
@@ -666,14 +660,7 @@ class ClippingEngine:
 
         estimated_model_gb = max(1.5, (billions or 10.0) * 0.62)
         pressure_ratio = estimated_model_gb / max(1.0, budget_gb)
-        if pressure_ratio >= 1.2:
-            effective = min(effective, 1300)
-        elif pressure_ratio >= 1.0:
-            effective = min(effective, 1600)
-        elif pressure_ratio >= 0.8:
-            effective = min(effective, 2100)
-
-        return max(900, int(effective)), float(pressure_ratio)
+        return max(900, int(configured_chunk_tokens)), float(pressure_ratio)
 
     @staticmethod
     def _resolve_prompt_aware_chunk_cap(
@@ -1680,4 +1667,3 @@ class ClippingEngine:
         self.console.print(Panel(summary, title="Run Summary", border_style="green"))
         self.console.print("[bold green]Engine run completed.[/bold green]")
         self.logger.info("Clipping engine run finished (run_id=%s)", run_id)
-
