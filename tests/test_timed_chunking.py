@@ -11,6 +11,7 @@ sys.modules.setdefault("yt_dlp", types.SimpleNamespace(YoutubeDL=object))
 from core.ai_pipeline import chunk_transcript
 from core.clipping import transcribe_video
 from core.engine import ClippingEngine
+from utils.hardware_detect import CudaMemorySnapshot
 
 
 class _FakeWhisperModel:
@@ -83,18 +84,98 @@ class TimedChunkingTests(TestCase):
             ],
         )
 
-    def test_hardware_pressure_does_not_reduce_transcript_context(self) -> None:
+    def _engine_for_cuda_context(self) -> ClippingEngine:
         engine = object.__new__(ClippingEngine)
-        engine.hardware_profile = {"gpu_vram_gb": 4.0, "ram_gb": 32.0}
-        engine.config = {"runtime": {"setup_intensity": "balanced"}}
+        engine.config = {
+            "ollama": {"url": "http://localhost:11434"},
+            "runtime": {"adaptive_cuda_context": True},
+        }
+        return engine
 
-        effective, pressure_ratio = engine._resolve_runtime_chunk_cap(
-            model_name="gpt-oss:20b",
-            configured_chunk_tokens=6000,
+    def test_cuda_context_uses_configured_maximum_with_enough_headroom(self) -> None:
+        engine = self._engine_for_cuda_context()
+        snapshot = CudaMemorySnapshot(
+            device_index=0,
+            device_name="RTX Test",
+            total_gb=24.0,
+            free_gb=22.0,
+            used_gb=2.0,
+            source="test",
         )
 
-        self.assertEqual(effective, 6000)
-        self.assertGreater(pressure_ratio, 1.0)
+        with (
+            mock.patch("core.engine.detect_cuda_memory_snapshot", return_value=snapshot),
+            mock.patch.object(engine, "_loaded_ollama_model_vram_gb", return_value=0.0),
+        ):
+            effective, details = engine._resolve_runtime_context_window(
+                model_name="gpt-oss:20b",
+                configured_context_tokens=16384,
+            )
+
+        self.assertEqual(effective, 16384)
+        self.assertEqual(details["context_headroom_gb"], 9.6)
+        self.assertFalse(details["model_resident"])
+
+    def test_cuda_context_scales_down_when_model_has_little_projected_headroom(self) -> None:
+        engine = self._engine_for_cuda_context()
+        snapshot = CudaMemorySnapshot(
+            device_index=0,
+            device_name="RTX Test",
+            total_gb=16.0,
+            free_gb=13.0,
+            used_gb=3.0,
+            source="test",
+        )
+
+        with (
+            mock.patch("core.engine.detect_cuda_memory_snapshot", return_value=snapshot),
+            mock.patch.object(engine, "_loaded_ollama_model_vram_gb", return_value=0.0),
+        ):
+            effective, details = engine._resolve_runtime_context_window(
+                model_name="gpt-oss:20b",
+                configured_context_tokens=16384,
+            )
+
+        self.assertEqual(effective, 8192)
+        self.assertAlmostEqual(details["context_headroom_gb"], 0.6)
+        self.assertEqual(details["scale"], 0.5)
+
+    def test_loaded_model_is_not_reserved_twice(self) -> None:
+        engine = self._engine_for_cuda_context()
+        snapshot = CudaMemorySnapshot(
+            device_index=0,
+            device_name="RTX Test",
+            total_gb=16.0,
+            free_gb=3.0,
+            used_gb=13.0,
+            source="test",
+        )
+
+        with (
+            mock.patch("core.engine.detect_cuda_memory_snapshot", return_value=snapshot),
+            mock.patch.object(engine, "_loaded_ollama_model_vram_gb", return_value=12.0),
+        ):
+            effective, details = engine._resolve_runtime_context_window(
+                model_name="gpt-oss:20b",
+                configured_context_tokens=16384,
+            )
+
+        self.assertEqual(effective, 14336)
+        self.assertEqual(details["context_headroom_gb"], 3.0)
+        self.assertTrue(details["model_resident"])
+
+    def test_missing_cuda_telemetry_preserves_configured_context(self) -> None:
+        engine = self._engine_for_cuda_context()
+
+        with mock.patch("core.engine.detect_cuda_memory_snapshot", return_value=None):
+            effective, details = engine._resolve_runtime_context_window(
+                model_name="gpt-oss:20b",
+                configured_context_tokens=16384,
+            )
+
+        self.assertEqual(effective, 16384)
+        self.assertFalse(details["detected"])
+        self.assertEqual(details["reason"], "cuda-telemetry-unavailable")
 
 
 class TranscriptionTests(TestCase):

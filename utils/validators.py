@@ -134,6 +134,7 @@ def build_default_config() -> Dict[str, Any]:
         "runtime": {
             "total_context_tokens": 8192,
             "max_chunk_tokens": 6000,
+            "adaptive_cuda_context": True,
             "setup_intensity": "balanced",
             "chunk_overlap_segments": 3,
             "enable_bridge_chunks": True,
@@ -333,6 +334,10 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
     )
     if not isinstance(config["runtime"].get("enable_bridge_chunks", True), bool):
         errors.append("runtime.enable_bridge_chunks must be true/false")
+    if "adaptive_cuda_context" not in config["runtime"]:
+        config["runtime"]["adaptive_cuda_context"] = True
+    if not isinstance(config["runtime"].get("adaptive_cuda_context"), bool):
+        errors.append("runtime.adaptive_cuda_context must be true/false")
     if "enable_temp_run_save" not in config["runtime"]:
         config["runtime"]["enable_temp_run_save"] = bool(
             config["clipping"].get("rerun_temp_files", True)

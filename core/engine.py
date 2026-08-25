@@ -40,6 +40,7 @@ from core.clipping import (
 from core.yt_handler import YTHandler
 from ui.components import hard_clear, show_header
 from utils.diagnostics import DiagnosticRecorder
+from utils.hardware_detect import detect_cuda_memory_snapshot
 from utils.model_selector import ensure_ollama_running, model_billions
 from utils.validators import config_paths, load_optional_profile, save_json_file
 
@@ -197,6 +198,7 @@ class ClippingEngine:
             "runtime": {
                 "total_context_tokens": int(runtime_cfg.get("total_context_tokens", 8192)),
                 "max_chunk_tokens": int(runtime_cfg.get("max_chunk_tokens", 6000)),
+                "adaptive_cuda_context": bool(runtime_cfg.get("adaptive_cuda_context", True)),
                 "chunk_overlap_segments": int(runtime_cfg.get("chunk_overlap_segments", 3)),
                 "enable_bridge_chunks": bool(runtime_cfg.get("enable_bridge_chunks", True)),
                 "bridge_chunk_edge_segments": int(runtime_cfg.get("bridge_chunk_edge_segments", 4)),
@@ -631,36 +633,88 @@ class ClippingEngine:
             return
         input("Press Enter to continue pipeline run...")
 
-    def _resolve_runtime_chunk_cap(
+    def _loaded_ollama_model_vram_gb(self, model_name: str) -> float:
+        endpoint = f"{str(self.config.get('ollama', {}).get('url', '')).rstrip('/')}/api/ps"
+        try:
+            response = requests.get(endpoint, timeout=1.5)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+        except Exception:
+            return 0.0
+
+        requested = str(model_name or "").strip().lower()
+        for item in models if isinstance(models, list) else []:
+            if not isinstance(item, dict):
+                continue
+            loaded_name = str(item.get("name") or item.get("model") or "").strip().lower()
+            if loaded_name != requested:
+                continue
+            try:
+                return max(0.0, float(item.get("size_vram", 0.0) or 0.0) / (1024**3))
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
+    def _resolve_runtime_context_window(
         self,
         model_name: str,
-        configured_chunk_tokens: int,
-    ) -> tuple[int, float]:
-        """
-        Preserve the configured transcript context while reporting hardware pressure.
+        configured_context_tokens: int,
+    ) -> tuple[int, Dict[str, Any]]:
+        configured = max(1024, int(configured_context_tokens))
+        adaptive = bool(self.config.get("runtime", {}).get("adaptive_cuda_context", True))
+        snapshot = detect_cuda_memory_snapshot() if adaptive else None
+        if snapshot is None:
+            return configured, {
+                "adaptive": adaptive,
+                "detected": False,
+                "configured_context_tokens": configured,
+                "effective_context_tokens": configured,
+                "scale": 1.0,
+                "reason": "cuda-telemetry-unavailable" if adaptive else "adaptive-scaling-disabled",
+            }
 
-        Context length is bounded separately by `_resolve_prompt_aware_chunk_cap`, which
-        reserves prompt and output space inside the model's real context window. Reducing
-        transcript context based on model size or VRAM pressure does not reduce the loaded
-        model's memory footprint and materially harms long-form clip selection.
-
-        Returns: (effective_chunk_tokens, pressure_ratio)
-        pressure_ratio > 1 means model estimate exceeds budget.
-        """
         billions = model_billions(model_name)
-        gpu_vram_gb = float(self.hardware_profile.get("gpu_vram_gb", 0.0) or 0.0)
-        ram_gb = float(self.hardware_profile.get("ram_gb", 0.0) or 0.0)
-        intensity = str(self.config.get("runtime", {}).get("setup_intensity", "balanced")).lower().strip()
-        if gpu_vram_gb > 0:
-            multiplier = {"light": 0.45, "balanced": 0.64, "maximum": 0.82}.get(intensity, 0.64)
-            budget_gb = max(2.0, gpu_vram_gb * multiplier)
-        else:
-            multiplier = {"light": 0.18, "balanced": 0.28, "maximum": 0.40}.get(intensity, 0.28)
-            budget_gb = max(2.0, ram_gb * multiplier)
-
         estimated_model_gb = max(1.5, (billions or 10.0) * 0.62)
-        pressure_ratio = estimated_model_gb / max(1.0, budget_gb)
-        return max(900, int(configured_chunk_tokens)), float(pressure_ratio)
+        loaded_model_vram_gb = self._loaded_ollama_model_vram_gb(model_name)
+        if loaded_model_vram_gb > 0:
+            context_headroom_gb = snapshot.free_gb
+            model_resident = True
+        else:
+            context_headroom_gb = max(0.0, snapshot.free_gb - estimated_model_gb)
+            model_resident = False
+
+        if context_headroom_gb >= 4.0:
+            scale = 1.0
+        elif context_headroom_gb >= 2.0:
+            scale = 0.875
+        elif context_headroom_gb >= 1.0:
+            scale = 0.75
+        else:
+            scale = 0.5
+
+        minimum_context = min(configured, 4096)
+        scaled_context = int((configured * scale) // 256) * 256
+        effective = max(minimum_context, min(configured, scaled_context))
+        return effective, {
+            "adaptive": True,
+            "detected": True,
+            "configured_context_tokens": configured,
+            "effective_context_tokens": effective,
+            "scale": scale,
+            "source": snapshot.source,
+            "device_index": snapshot.device_index,
+            "device_count": snapshot.device_count,
+            "device_name": snapshot.device_name,
+            "total_gb": snapshot.total_gb,
+            "free_gb": snapshot.free_gb,
+            "used_gb": snapshot.used_gb,
+            "free_fraction": snapshot.free_fraction,
+            "estimated_model_gb": estimated_model_gb,
+            "loaded_model_vram_gb": loaded_model_vram_gb,
+            "model_resident": model_resident,
+            "context_headroom_gb": context_headroom_gb,
+            "reason": "live-cuda-memory",
+        }
 
     @staticmethod
     def _resolve_prompt_aware_chunk_cap(
@@ -698,25 +752,28 @@ class ClippingEngine:
 
         model_name = str(ollama_cfg.get("model", ""))
         configured_chunk_tokens = int(runtime_cfg.get("max_chunk_tokens", 6000))
-        total_context_tokens = int(runtime_cfg.get("total_context_tokens", 8192))
+        total_context_tokens = min(
+            int(runtime_cfg.get("total_context_tokens", 8192)),
+            int(ollama_cfg.get("context_window", runtime_cfg.get("total_context_tokens", 8192))),
+        )
         max_output_tokens = int(ollama_cfg.get("max_output_tokens", 900))
         chunk_overlap_segments = int(runtime_cfg.get("chunk_overlap_segments", 3))
         enable_bridge_chunks = bool(runtime_cfg.get("enable_bridge_chunks", True))
         bridge_chunk_edge_segments = int(runtime_cfg.get("bridge_chunk_edge_segments", 4))
         progress_interval = int(clipping_cfg.get("clip_progress_interval", 5))
 
-        runtime_capped_chunk_tokens, pressure_ratio = self._resolve_runtime_chunk_cap(
+        effective_context_tokens, cuda_memory = self._resolve_runtime_context_window(
             model_name=model_name,
-            configured_chunk_tokens=configured_chunk_tokens,
+            configured_context_tokens=total_context_tokens,
         )
         prompt_capped_chunk_tokens, prompt_tokens, prompt_available = self._resolve_prompt_aware_chunk_cap(
-            configured_chunk_tokens=runtime_capped_chunk_tokens,
-            total_context_tokens=total_context_tokens,
+            configured_chunk_tokens=configured_chunk_tokens,
+            total_context_tokens=effective_context_tokens,
             max_output_tokens=max_output_tokens,
             user_query=user_query,
             system_prompt=system_prompt,
         )
-        max_chunk_tokens = min(runtime_capped_chunk_tokens, prompt_capped_chunk_tokens)
+        max_chunk_tokens = min(configured_chunk_tokens, prompt_capped_chunk_tokens)
 
         return {
             "merge_distance": merge_distance,
@@ -731,8 +788,9 @@ class ClippingEngine:
             "enable_bridge_chunks": enable_bridge_chunks,
             "bridge_chunk_edge_segments": bridge_chunk_edge_segments,
             "progress_interval": progress_interval,
-            "runtime_capped_chunk_tokens": runtime_capped_chunk_tokens,
-            "pressure_ratio": pressure_ratio,
+            "configured_context_tokens": total_context_tokens,
+            "effective_context_tokens": effective_context_tokens,
+            "cuda_memory": cuda_memory,
             "prompt_tokens": prompt_tokens,
             "prompt_available": prompt_available,
             "max_chunk_tokens": max_chunk_tokens,
@@ -1154,20 +1212,39 @@ class ClippingEngine:
                             "Applying minimum clip duration: %.1f seconds",
                             initial_runtime["min_duration_seconds"],
                         )
-                    if initial_runtime["runtime_capped_chunk_tokens"] != initial_runtime["configured_chunk_tokens"]:
+                    ai_pipeline.max_context_tokens = int(initial_runtime["effective_context_tokens"])
+                    cuda_memory = initial_runtime["cuda_memory"]
+                    if initial_runtime["effective_context_tokens"] != initial_runtime["configured_context_tokens"]:
                         self.logger.info(
-                            "Adjusted chunk token cap from %s to %s for model/hardware pressure (ratio=%.2f).",
-                            initial_runtime["configured_chunk_tokens"],
-                            initial_runtime["runtime_capped_chunk_tokens"],
-                            initial_runtime["pressure_ratio"],
+                            (
+                                "Adjusted Ollama context from %s to %s tokens using live CUDA memory "
+                                "(%s, %.2f/%.2f GB free, %.2f GB context headroom)."
+                            ),
+                            initial_runtime["configured_context_tokens"],
+                            initial_runtime["effective_context_tokens"],
+                            cuda_memory.get("device_name", "CUDA GPU"),
+                            float(cuda_memory.get("free_gb", 0.0)),
+                            float(cuda_memory.get("total_gb", 0.0)),
+                            float(cuda_memory.get("context_headroom_gb", 0.0)),
                         )
-                    if initial_runtime["max_chunk_tokens"] != initial_runtime["runtime_capped_chunk_tokens"]:
+                    elif cuda_memory.get("detected"):
+                        self.logger.info(
+                            "Using maximum configured context (%s tokens); CUDA has %.2f GB context headroom.",
+                            initial_runtime["effective_context_tokens"],
+                            float(cuda_memory.get("context_headroom_gb", 0.0)),
+                        )
+                    else:
+                        self.logger.info(
+                            "CUDA memory telemetry unavailable; preserving configured context (%s tokens).",
+                            initial_runtime["effective_context_tokens"],
+                        )
+                    if initial_runtime["max_chunk_tokens"] != initial_runtime["configured_chunk_tokens"]:
                         self.logger.info(
                             (
                                 "Adjusted chunk token cap from %s to %s for prompt pressure "
                                 "(prompt_tokens=%s available_context=%s)."
                             ),
-                            initial_runtime["runtime_capped_chunk_tokens"],
+                            initial_runtime["configured_chunk_tokens"],
                             initial_runtime["max_chunk_tokens"],
                             initial_runtime["prompt_tokens"],
                             initial_runtime["prompt_available"],
@@ -1214,6 +1291,14 @@ class ClippingEngine:
                         while not processed_video:
                             config_signature = self._current_resume_signature()
                             runtime = self._runtime_video_parameters()
+                            previous_context_tokens = int(ai_pipeline.max_context_tokens)
+                            ai_pipeline.max_context_tokens = int(runtime["effective_context_tokens"])
+                            if ai_pipeline.max_context_tokens != previous_context_tokens:
+                                self.logger.info(
+                                    "CUDA availability changed Ollama context from %s to %s tokens.",
+                                    previous_context_tokens,
+                                    ai_pipeline.max_context_tokens,
+                                )
                             merge_distance = float(runtime["merge_distance"])
                             ai_loops = int(runtime["ai_loops"])
                             effective_query = str(runtime["effective_query"])
@@ -1266,6 +1351,7 @@ class ClippingEngine:
                                 chunking_meta = checkpoint.get("chunking_meta", {})
                                 expected_meta = {
                                     "max_chunk_tokens": int(max_chunk_tokens),
+                                    "model_context_tokens": int(ai_pipeline.max_context_tokens),
                                     "chunk_overlap_segments": int(max(0, chunk_overlap_segments)),
                                     "enable_bridge_chunks": bool(enable_bridge_chunks),
                                     "bridge_chunk_edge_segments": int(max(1, bridge_chunk_edge_segments)),

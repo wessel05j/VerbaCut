@@ -146,9 +146,11 @@ The launcher waits only for an atomic startup acknowledgement. Progress is recor
 or scheduled automation exits. Concurrent starts are rejected by a PID-aware lock. The normal
 download history prevents previously downloaded source videos from being fetched again.
 
-Transcript scans preserve the configured chunk budget whenever it fits after prompt and output
-reserves inside the model context window. Model-size or VRAM pressure is reported for diagnostics but
-does not silently shrink transcript awareness; overlap and bridge chunks retain boundary context.
+Transcript scans use live CUDA free-memory telemetry to select the largest safe Ollama context up to
+the configured maximum. VerbaCut accounts for the model's estimated GPU residency when it is not yet
+loaded, passes the selected window to Ollama as `num_ctx`, and fills the remaining prompt-safe space
+with transcript context. If CUDA telemetry is unavailable, it preserves the configured maximum.
+Overlap and bridge chunks retain context across chunk boundaries.
 
 If the launcher is invoked again while its own healthy worker is already running, it attaches to
 that run instead of starting a duplicate download or engine process. Stale locks are recovered

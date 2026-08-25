@@ -24,6 +24,23 @@ class HardwareProfile:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class CudaMemorySnapshot:
+    device_index: int
+    device_name: str
+    total_gb: float
+    free_gb: float
+    used_gb: float
+    source: str
+    device_count: int = 1
+
+    @property
+    def free_fraction(self) -> float:
+        if self.total_gb <= 0:
+            return 0.0
+        return max(0.0, min(1.0, self.free_gb / self.total_gb))
+
+
 def _run_command(command: list[str]) -> str:
     try:
         result = subprocess.run(
@@ -102,31 +119,116 @@ def _detect_ram_gb() -> float:
         return 8.0
 
 
-def _detect_nvidia_gpu() -> tuple[str, float]:
+def _aggregate_cuda_memory(
+    snapshots: list[CudaMemorySnapshot],
+    source: str,
+) -> Optional[CudaMemorySnapshot]:
+    if not snapshots:
+        return None
+    if len(snapshots) == 1:
+        return snapshots[0]
+
+    names = ", ".join(item.device_name for item in snapshots)
+    return CudaMemorySnapshot(
+        device_index=-1,
+        device_name=f"{len(snapshots)} CUDA GPUs ({names})",
+        total_gb=round(sum(item.total_gb for item in snapshots), 3),
+        free_gb=round(sum(item.free_gb for item in snapshots), 3),
+        used_gb=round(sum(item.used_gb for item in snapshots), 3),
+        source=source,
+        device_count=len(snapshots),
+    )
+
+
+def _detect_nvidia_cuda_memory() -> Optional[CudaMemorySnapshot]:
     output = _run_command(
         [
             "nvidia-smi",
-            "--query-gpu=name,memory.total",
+            "--query-gpu=index,name,memory.total,memory.free,memory.used",
             "--format=csv,noheader,nounits",
         ]
     )
     if not output:
-        return "", 0.0
+        return None
 
-    first_line = output.splitlines()[0].strip()
-    if not first_line:
-        return "", 0.0
+    snapshots: list[CudaMemorySnapshot] = []
+    for raw_line in output.splitlines():
+        parts = [part.strip() for part in raw_line.split(",")]
+        if len(parts) < 5:
+            continue
+        try:
+            device_index = int(parts[0])
+            total_gb = float(parts[2]) / 1024.0
+            free_gb = float(parts[3]) / 1024.0
+            used_gb = float(parts[4]) / 1024.0
+        except (TypeError, ValueError):
+            continue
+        if total_gb <= 0:
+            continue
+        snapshots.append(
+            CudaMemorySnapshot(
+                device_index=device_index,
+                device_name=parts[1] or f"CUDA GPU {device_index}",
+                total_gb=round(total_gb, 3),
+                free_gb=round(max(0.0, free_gb), 3),
+                used_gb=round(max(0.0, used_gb), 3),
+                source="nvidia-smi",
+            )
+        )
 
-    parts = [part.strip() for part in first_line.split(",")]
-    if len(parts) < 2:
-        return parts[0], 0.0
+    return _aggregate_cuda_memory(snapshots, source="nvidia-smi")
 
-    gpu_name = parts[0]
+
+def _detect_torch_cuda_memory() -> Optional[CudaMemorySnapshot]:
     try:
-        vram_gb = round(float(parts[1]) / 1024.0, 1)
+        import torch  # type: ignore
     except Exception:
-        vram_gb = 0.0
-    return gpu_name, vram_gb
+        return None
+
+    if not torch.cuda.is_available():
+        return None
+
+    snapshots: list[CudaMemorySnapshot] = []
+    try:
+        device_count = int(torch.cuda.device_count())
+    except Exception:
+        device_count = 1
+
+    for device_index in range(max(1, device_count)):
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
+            device_name = str(torch.cuda.get_device_name(device_index))
+            total_gb = float(total_bytes) / (1024**3)
+            free_gb = float(free_bytes) / (1024**3)
+        except Exception:
+            continue
+        if total_gb <= 0:
+            continue
+        snapshots.append(
+            CudaMemorySnapshot(
+                device_index=device_index,
+                device_name=device_name or f"CUDA GPU {device_index}",
+                total_gb=round(total_gb, 3),
+                free_gb=round(max(0.0, free_gb), 3),
+                used_gb=round(max(0.0, total_gb - free_gb), 3),
+                source="torch.cuda",
+            )
+        )
+
+    return _aggregate_cuda_memory(snapshots, source="torch.cuda")
+
+
+def detect_cuda_memory_snapshot() -> Optional[CudaMemorySnapshot]:
+    """Return aggregate live memory telemetry for all CUDA devices visible to the runtime."""
+    return _detect_nvidia_cuda_memory() or _detect_torch_cuda_memory()
+
+
+def _detect_nvidia_gpu() -> tuple[str, float]:
+    snapshot = _detect_nvidia_cuda_memory()
+    if snapshot is None:
+        return "", 0.0
+
+    return snapshot.device_name, round(snapshot.total_gb, 1)
 
 
 def _detect_torch_cuda() -> tuple[bool, str, float]:
@@ -186,4 +288,3 @@ def detect_hardware_profile() -> HardwareProfile:
         recommended_context_window=recommended_ctx,
         os_name=f"{platform.system()} {platform.release()}",
     )
-
