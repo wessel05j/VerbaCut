@@ -13,6 +13,26 @@ from utils.validators import build_default_config
 
 
 class SetupStateTests(unittest.TestCase):
+    def test_external_tool_check_handles_missing_terminal_input(self) -> None:
+        status = {
+            "python": True,
+            "ffmpeg": True,
+            "ffprobe": True,
+            "ollama": False,
+            "node": True,
+            "deno": False,
+            "yt_dlp_module": True,
+        }
+
+        with patch("setup_env._collect_dependency_status", return_value=status), patch(
+            "setup_env._probe_youtube_cookie_sources", return_value=(True, "test")
+        ), patch(
+            "setup_env._build_install_commands", return_value=([("Ollama", 1, ["install-ollama"])], [])
+        ), patch.object(setup_env.sys.stdin, "isatty", return_value=True), patch(
+            "builtins.input", side_effect=EOFError
+        ):
+            self.assertFalse(setup_env.check_external_tools())
+
     def test_auto_torch_cpu_fallback_skips_future_setup(self) -> None:
         state = {
             "python_executable": sys.executable,

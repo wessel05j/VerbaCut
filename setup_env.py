@@ -391,7 +391,11 @@ def check_external_tools() -> bool:
         print("Non-interactive shell detected; skipping auto-install prompt.")
         return len(missing_required) == 0
 
-    reply = input("Install missing dependencies now? [y/N]: ").strip().lower()
+    try:
+        reply = input("Install missing dependencies now? [y/N]: ").strip().lower()
+    except EOFError:
+        print("No interactive input available; skipping auto-install prompt.")
+        return False
     if reply not in {"y", "yes"}:
         print("Auto-install skipped by user.")
         return len(missing_required) == 0
